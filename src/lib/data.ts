@@ -1,4 +1,4 @@
-import { db } from "@/db";
+import { getDb } from "@/db";
 import {
   customRequests,
   newsletterSubscribers,
@@ -222,9 +222,9 @@ function toCatalogProduct(row: Product): CatalogProduct {
 }
 
 async function seedIfEmpty(): Promise<void> {
-  const existing = await db.select({ count: sql<number>`count(*)::int` }).from(products);
+  const existing = await getDb().select({ count: sql<number>`count(*)::int` }).from(products);
   if ((existing[0]?.count ?? 0) > 0) return;
-  await db.insert(products).values(PRODUCT_SEED.map((p) => ({ ...p })));
+  await getDb().insert(products).values(PRODUCT_SEED.map((p) => ({ ...p })));
 }
 
 const globalForSeed = globalThis as typeof globalThis & {
@@ -284,7 +284,7 @@ export async function listProducts(options?: {
             ? desc(products.createdAt)
             : asc(products.sortOrder);
 
-    const rows = await db
+    const rows = await getDb()
       .select()
       .from(products)
       .where(filters.length ? and(...filters) : undefined)
@@ -317,7 +317,7 @@ export async function listProducts(options?: {
 export async function getProductBySlug(slug: string): Promise<CatalogProduct | null> {
   try {
     await ensureSeed();
-    const rows = await db.select().from(products).where(eq(products.slug, slug)).limit(1);
+    const rows = await getDb().select().from(products).where(eq(products.slug, slug)).limit(1);
     if (rows[0]) return toCatalogProduct(rows[0]);
     return fallbackProducts().find((p) => p.slug === slug) ?? null;
   } catch (error) {
@@ -397,12 +397,12 @@ export async function createOrder(input: NewOrderInput): Promise<{
 
   let code = generateCode("FLR");
   for (let attempt = 0; attempt < 4; attempt += 1) {
-    const clash = await db.select({ id: orders.id }).from(orders).where(eq(orders.code, code)).limit(1);
+    const clash = await getDb().select({ id: orders.id }).from(orders).where(eq(orders.code, code)).limit(1);
     if (!clash[0]) break;
     code = generateCode("FLR");
   }
 
-  const inserted = await db
+  const inserted = await getDb()
     .insert(orders)
     .values({
       code,
@@ -433,7 +433,7 @@ export async function createOrder(input: NewOrderInput): Promise<{
   const order = inserted[0];
   if (!order) throw new Error("No se pudo registrar el pedido");
 
-  await db.insert(orderItems).values(
+  await getDb().insert(orderItems).values(
     priced.map((item) => ({
       orderId: order.id,
       productSlug: item.productSlug,
@@ -457,14 +457,14 @@ export async function getOrderByCode(
   code: string,
 ): Promise<{ order: Order; items: OrderItem[] } | null> {
   try {
-    const rows = await db
+    const rows = await getDb()
       .select()
       .from(orders)
       .where(eq(orders.code, code.trim().toUpperCase()))
       .limit(1);
     const order = rows[0];
     if (!order) return null;
-    const items = await db.select().from(orderItems).where(eq(orderItems.orderId, order.id));
+    const items = await getDb().select().from(orderItems).where(eq(orderItems.orderId, order.id));
     return { order, items };
   } catch (error) {
     console.error("getOrderByCode error:", error);
@@ -493,13 +493,13 @@ export async function createCustomRequest(
   input: NewCustomRequestInput,
 ): Promise<{ code: string }> {
   const code = generateCode("FLP");
-  await db.insert(customRequests).values({ ...input, code });
+  await getDb().insert(customRequests).values({ ...input, code });
   return { code };
 }
 
 export async function listOrders(limit = 80): Promise<Order[]> {
   try {
-    return await db.select().from(orders).orderBy(desc(orders.createdAt)).limit(limit);
+    return await getDb().select().from(orders).orderBy(desc(orders.createdAt)).limit(limit);
   } catch (error) {
     console.error("listOrders error:", error);
     return [];
@@ -508,7 +508,7 @@ export async function listOrders(limit = 80): Promise<Order[]> {
 
 export async function listCustomRequests(limit = 60): Promise<CustomRequest[]> {
   try {
-    return await db
+    return await getDb()
       .select()
       .from(customRequests)
       .orderBy(desc(customRequests.createdAt))
@@ -527,17 +527,17 @@ export async function getDashboardStats(): Promise<{
   subscriberCount: number;
 }> {
   try {
-    const [orderStats] = await db
+    const [orderStats] = await getDb()
       .select({
         count: sql<number>`count(*)::int`,
         revenue: sql<number>`coalesce(sum(${orders.totalCents}), 0)::int`,
         pending: sql<number>`count(*) filter (where ${orders.status} in ('nuevo','en_preparacion'))::int`,
       })
       .from(orders);
-    const [customStats] = await db
+    const [customStats] = await getDb()
       .select({ count: sql<number>`count(*)::int` })
       .from(customRequests);
-    const [subs] = await db
+    const [subs] = await getDb()
       .select({ count: sql<number>`count(*)::int` })
       .from(newsletterSubscribers);
     return {
@@ -560,14 +560,14 @@ export async function getDashboardStats(): Promise<{
 }
 
 export async function updateOrderStatus(code: string, status: string): Promise<void> {
-  await db.update(orders).set({ status }).where(eq(orders.code, code));
+  await getDb().update(orders).set({ status }).where(eq(orders.code, code));
 }
 
 export async function updateOrderPayment(
   code: string,
   payment: { status: string; provider: string; reference: string; last4: string },
 ): Promise<void> {
-  await db
+  await getDb()
     .update(orders)
     .set({
       paymentStatus: payment.status,
@@ -582,11 +582,11 @@ export async function updateProductFlags(
   slug: string,
   flags: { active?: boolean; featured?: boolean; priceCents?: number },
 ): Promise<void> {
-  await db.update(products).set(flags).where(eq(products.slug, slug));
+  await getDb().update(products).set(flags).where(eq(products.slug, slug));
 }
 
 export async function subscribeNewsletter(email: string): Promise<void> {
-  await db
+  await getDb()
     .insert(newsletterSubscribers)
     .values({ email: email.toLowerCase() })
     .onConflictDoNothing();
